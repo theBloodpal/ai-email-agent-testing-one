@@ -1,0 +1,64 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.venv/
+pip-log.txt
+*.egg-info/
+dist/
+build/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json  # Optional: remove if you want to commit lock files
+
+# Frontend build
+dist/
+.next/
+out/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Excel files
+*.xlsx
+*.xls
+*.xlsm
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# OS
+Desktop.ini
+$RECYCLE.BIN/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+.cache/
