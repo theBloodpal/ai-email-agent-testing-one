@@ -6,6 +6,7 @@ from email import encoders
 from dotenv import load_dotenv
 import os
 from typing import NamedTuple 
+import requests
 
 
 load_dotenv() 
@@ -91,4 +92,60 @@ def send_email_smtp(
 
     except Exception as e:
         print("❌ ERROR while sending email:", str(e))
+        raise
+
+def send_email_sendgrid_api(
+    api_key: str,
+    to_addr: str,
+    subject: str,
+    body: str,
+    from_addr: str,
+    attachments=None
+) -> None:
+    print("🔌 Connecting to SendGrid API...")
+    print(f"📤 Preparing to send email to: {to_addr}")
+
+    url = "https://api.sendgrid.com/v3/mail/send"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "personalizations": [
+            {
+                "to": [{"email": to_addr}],
+                "subject": subject
+            }
+        ],
+        "from": {"email": from_addr},
+        "content": [
+            {
+                "type": "text/html",  # Send as HTML to support links, otherwise fallback to plain text if needed
+                "value": body
+            }
+        ]
+    }
+
+    if attachments:
+        import base64
+        print(f"📎 Attaching {len(attachments)} files...")
+        sg_attachments = []
+        for file in attachments:
+            encoded = base64.b64encode(file["content"]).decode("utf-8")
+            sg_attachments.append({
+                "content": encoded,
+                "filename": file["filename"]
+            })
+        payload["attachments"] = sg_attachments
+
+    try:
+        print("📨 Sending email via SendGrid API...")
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        response.raise_for_status()
+        print("🎉 Email sent successfully via SendGrid API!")
+    except Exception as e:
+        print("❌ ERROR while sending email via SendGrid:", str(e))
+        if hasattr(e, "response") and e.response is not None:
+            print("Response:", e.response.text)
         raise

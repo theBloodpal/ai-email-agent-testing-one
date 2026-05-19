@@ -17,7 +17,7 @@ import os
 from imap_tools import MailBox
 
 from app.ai_client import API_KEY, answer_email_question, enhance_email
-from app.email_service import load_smtp_settings, send_email_smtp
+from app.email_service import load_smtp_settings, send_email_smtp, send_email_sendgrid_api
 from app.excel_utils import (
     detect_email_column,
     detect_first_name_column,
@@ -1551,8 +1551,21 @@ def _send_worker_job(job_id: str, subject: str, message_template: str, snapshot:
 
         if smtp:
             try:
-                send_email_smtp(to_addr, subject, body, smtp, attachments)
-                entry = {"email": to_addr, "status": "delivered", "detail": "Accepted by SMTP server"}
+                sg_api_key = os.getenv("SENDGRID_API_KEY", "").strip()
+                if sg_api_key:
+                    send_email_sendgrid_api(
+                        api_key=sg_api_key,
+                        to_addr=to_addr,
+                        subject=subject,
+                        body=body,
+                        from_addr=smtp.from_addr,
+                        attachments=attachments
+                    )
+                    entry = {"email": to_addr, "status": "delivered", "detail": "Sent via SendGrid API"}
+                else:
+                    send_email_smtp(to_addr, subject, body, smtp, attachments)
+                    entry = {"email": to_addr, "status": "delivered", "detail": "Accepted by SMTP server"}
+                
                 with _send_jobs_lock:
                     p = state["send_jobs"][job_id]["progress"]
                     p["current_email"] = to_addr
