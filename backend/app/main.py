@@ -1553,12 +1553,13 @@ def _send_worker_job(job_id: str, subject: str, message_template: str, snapshot:
             try:
                 sg_api_key = os.getenv("SENDGRID_API_KEY", "").strip()
                 if sg_api_key:
+                    sg_from_addr = os.getenv("SENDGRID_FROM", "").strip() or smtp.from_addr
                     send_email_sendgrid_api(
                         api_key=sg_api_key,
                         to_addr=to_addr,
                         subject=subject,
                         body=body,
-                        from_addr=smtp.from_addr,
+                        from_addr=sg_from_addr,
                         attachments=attachments
                     )
                     entry = {"email": to_addr, "status": "delivered", "detail": "Sent via SendGrid API"}
