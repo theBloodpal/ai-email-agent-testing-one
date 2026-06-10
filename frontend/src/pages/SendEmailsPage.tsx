@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Upload, FileText, Send, CheckCircle, X } from 'lucide-react';
 import {
   uploadExcel,
+  uploadAttachments,
   generateMessage,
   enhanceMessage,
   previewMessages,
@@ -116,6 +117,7 @@ const SendEmailsPage: React.FC = () => {
     if (!subject || !messageTemplate) return;
     setSending(true);
     try {
+      await uploadAttachments(attachments);
       await sendMessages(subject, messageTemplate);
       await loadStatus();
     } catch (err: any) {

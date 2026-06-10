@@ -1325,11 +1325,12 @@ async def upload_excel(file: UploadFile = File(...)) -> dict[str, object]:
 
 
 @app.post("/api/upload-attachments")
-async def upload_attachments(files: List[UploadFile] = File(...)):
+async def upload_attachments(files: List[UploadFile] = File(default=[])):
     attachments = []
     for f in files:
-        content = await f.read()
-        attachments.append({"filename": f.filename, "content": content})
+        if f.filename:
+            content = await f.read()
+            attachments.append({"filename": f.filename, "content": content})
     state["attachments"] = attachments
     return {"attachments": [a["filename"] for a in attachments]}
 
