@@ -32,6 +32,15 @@ const SendEmailsPage: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (status && status.excel_uploaded === false && !loading) {
+      if (uploadData !== null || uploadedFile !== null) {
+        setUploadData(null);
+        setUploadedFile(null);
+      }
+    }
+  }, [status, loading, uploadData, uploadedFile]);
+
   const loadStatus = async () => {
     try {
       const res = await getSendStatus();
