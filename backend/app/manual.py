@@ -26,7 +26,16 @@ class ManualEmailSender:
         email = self.emails[self.index]
 
         try:
-            if self.settings:
+            from app.gmail_service import is_gmail_api_configured, send_email_gmail_api
+
+            if is_gmail_api_configured():
+                send_email_gmail_api(
+                    to_addr=email["to"],
+                    subject=email["subject"],
+                    body=email["body"],
+                    attachments=email.get("attachments", []),
+                )
+            elif self.settings:
                 send_email_smtp(
                     to_addr=email["to"],
                     subject=email["subject"],

@@ -1519,13 +1519,13 @@ def _send_worker_job(job_id: str, subject: str, message_template: str, snapshot:
 
     for row in rows:
         if state.get("stop_requested"):
-            print(f"🛑 STOP TRIGGERED (global)")
+            print(f"[STOP] TRIGGERED (global)")
             break
 
         with _send_jobs_lock:
             job_row = dict(state["send_jobs"].get(job_id) or {})
             if job_row.get("stop_requested"):
-                print(f"🛑 STOP TRIGGERED ({job_id})")
+                print(f"[STOP] TRIGGERED ({job_id})")
                 break
 
         if not email_column:
@@ -1549,22 +1549,29 @@ def _send_worker_job(job_id: str, subject: str, message_template: str, snapshot:
 
         body = personalize_message(message_template, row, first_name_column)
 
-        if smtp:
+        from app.gmail_service import is_gmail_api_configured, send_email_gmail_api
+        use_gmail_api = is_gmail_api_configured()
+
+        if use_gmail_api or smtp:
             try:
-                sg_api_key = os.getenv("SENDGRID_API_KEY", "").strip()
-                if sg_api_key:
-                    send_email_sendgrid_api(
-                        api_key=sg_api_key,
-                        to_addr=to_addr,
-                        subject=subject,
-                        body=body,
-                        from_addr=smtp.from_addr,
-                        attachments=attachments
-                    )
-                    entry = {"email": to_addr, "status": "delivered", "detail": "Sent via SendGrid API"}
+                if use_gmail_api:
+                    send_email_gmail_api(to_addr, subject, body, attachments)
+                    entry = {"email": to_addr, "status": "delivered", "detail": "Sent via Google Gmail API"}
                 else:
-                    send_email_smtp(to_addr, subject, body, smtp, attachments)
-                    entry = {"email": to_addr, "status": "delivered", "detail": "Accepted by SMTP server"}
+                    sg_api_key = os.getenv("SENDGRID_API_KEY", "").strip()
+                    if sg_api_key:
+                        send_email_sendgrid_api(
+                            api_key=sg_api_key,
+                            to_addr=to_addr,
+                            subject=subject,
+                            body=body,
+                            from_addr=smtp.from_addr,
+                            attachments=attachments
+                        )
+                        entry = {"email": to_addr, "status": "delivered", "detail": "Sent via SendGrid API"}
+                    else:
+                        send_email_smtp(to_addr, subject, body, smtp, attachments)
+                        entry = {"email": to_addr, "status": "delivered", "detail": "Accepted by SMTP server"}
                 
                 with _send_jobs_lock:
                     p = state["send_jobs"][job_id]["progress"]
@@ -1585,7 +1592,7 @@ def _send_worker_job(job_id: str, subject: str, message_template: str, snapshot:
             entry = {
                 "email": to_addr,
                 "status": "delivered",
-                "detail": "Simulated (set SMTP_* env vars for real send)",
+                "detail": "Simulated (configure Google API or SMTP for real send)",
             }
             with _send_jobs_lock:
                 p = state["send_jobs"][job_id]["progress"]
@@ -1670,7 +1677,7 @@ def _send_worker_job(job_id: str, subject: str, message_template: str, snapshot:
         state["last_batch"] = last_batch
 
     _refresh_legacy_send_aggregate()
-    print(f"✅ Send worker finished ({job_id}).")
+    print(f"[Send worker] Finished ({job_id}).")
 
 
 # ════════════════════════════════════════════
@@ -1755,8 +1762,12 @@ async def send_status() -> dict[str, object]:
     smtp = load_smtp_settings()
     active = state.get("active_sender")
 
+    from app.gmail_service import is_gmail_api_configured
+    gmail_ready = is_gmail_api_configured()
+
     smtp_ready = (
-        smtp is not None
+        gmail_ready
+        or smtp is not None
         or (
             isinstance(active, dict)
             and bool(active.get("email"))
@@ -1776,9 +1787,13 @@ async def send_status() -> dict[str, object]:
         "last_batch": state.get("last_batch"),
         "smtp_configured": bool(smtp_ready),
         "delivery_note": (
-            "SMTP via active sender credentials or SMTP_* env. Multiple concurrent sends are supported."
-            if smtp_ready
-            else "Demo mode: configure sender app password / SMTP_* for real sending.",
+            "Gmail API configured (HTTPS)."
+            if gmail_ready
+            else (
+                "SMTP via active sender credentials or SMTP_* env. Multiple concurrent sends are supported."
+                if smtp_ready
+                else "Demo mode: configure sender app password / SMTP_* for real sending."
+            )
         ),
     }
 
