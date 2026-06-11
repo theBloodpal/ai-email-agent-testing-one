@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Upload, FileText, Send, CheckCircle, X } from 'lucide-react';
 import {
   uploadExcel,
+  uploadAttachments,
   generateMessage,
   enhanceMessage,
   previewMessages,
@@ -31,6 +32,15 @@ const SendEmailsPage: React.FC = () => {
     const interval = setInterval(loadStatus, 2000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (status && status.excel_uploaded === false && !loading) {
+      if (uploadData !== null || uploadedFile !== null) {
+        setUploadData(null);
+        setUploadedFile(null);
+      }
+    }
+  }, [status, loading, uploadData, uploadedFile]);
 
   const loadStatus = async () => {
     try {
@@ -107,6 +117,7 @@ const SendEmailsPage: React.FC = () => {
     if (!subject || !messageTemplate) return;
     setSending(true);
     try {
+      await uploadAttachments(attachments);
       await sendMessages(subject, messageTemplate);
       await loadStatus();
     } catch (err: any) {

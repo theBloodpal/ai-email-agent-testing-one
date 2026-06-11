@@ -79,6 +79,8 @@ export interface SendStatusResponse {
     results: { email: string; status: string; detail: string }[];
   } | null;
   smtp_configured: boolean;
+  excel_uploaded?: boolean;
+  excel_rows_count?: number;
   delivery_note: string;
 }
 

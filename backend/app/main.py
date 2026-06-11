@@ -1325,11 +1325,12 @@ async def upload_excel(file: UploadFile = File(...)) -> dict[str, object]:
 
 
 @app.post("/api/upload-attachments")
-async def upload_attachments(files: List[UploadFile] = File(...)):
+async def upload_attachments(files: List[UploadFile] = File(default=[])):
     attachments = []
     for f in files:
-        content = await f.read()
-        attachments.append({"filename": f.filename, "content": content})
+        if f.filename:
+            content = await f.read()
+            attachments.append({"filename": f.filename, "content": content})
     state["attachments"] = attachments
     return {"attachments": [a["filename"] for a in attachments]}
 
@@ -1560,12 +1561,13 @@ def _send_worker_job(job_id: str, subject: str, message_template: str, snapshot:
                 else:
                     sg_api_key = os.getenv("SENDGRID_API_KEY", "").strip()
                     if sg_api_key:
+                        sg_from_addr = os.getenv("SENDGRID_FROM", "").strip() or smtp.from_addr
                         send_email_sendgrid_api(
                             api_key=sg_api_key,
                             to_addr=to_addr,
                             subject=subject,
                             body=body,
-                            from_addr=smtp.from_addr,
+                            from_addr=sg_from_addr,
                             attachments=attachments
                         )
                         entry = {"email": to_addr, "status": "delivered", "detail": "Sent via SendGrid API"}
@@ -1786,6 +1788,8 @@ async def send_status() -> dict[str, object]:
         "active_job_count": bundle.get("active_job_count"),
         "last_batch": state.get("last_batch"),
         "smtp_configured": bool(smtp_ready),
+        "excel_uploaded": len(state.get("rows") or []) > 0,
+        "excel_rows_count": len(state.get("rows") or []),
         "delivery_note": (
             "Gmail API configured (HTTPS)."
             if gmail_ready
@@ -1897,6 +1901,8 @@ def init_manual_sender(subject: str, message_template: str):
 
 @app.post("/api/manual/init")
 def manual_init(payload: SendRequest):
+    if not state.get("rows"):
+        raise HTTPException(status_code=400, detail="Upload Excel before initializing manual send.")
     init_manual_sender(payload.subject, payload.message_template)
     sender = state["manual_sender"]
     return {"success": True, "total": len(sender.emails)}
