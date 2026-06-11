@@ -13,21 +13,35 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+_cached_creds: Credentials | None = None
+_cached_service = None
+
 def get_gmail_credentials() -> Credentials | None:
+    global _cached_creds, _cached_service
     client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
     client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
     refresh_token = os.getenv("GOOGLE_REFRESH_TOKEN", "").strip()
 
     if not all([client_id, client_secret, refresh_token]):
+        _cached_creds = None
+        _cached_service = None
         return None
 
-    return Credentials(
+    if (_cached_creds 
+        and _cached_creds.client_id == client_id 
+        and _cached_creds.client_secret == client_secret 
+        and _cached_creds.refresh_token == refresh_token):
+        return _cached_creds
+
+    _cached_creds = Credentials(
         token=None,
         refresh_token=refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=client_id,
         client_secret=client_secret
     )
+    _cached_service = None
+    return _cached_creds
 
 def is_gmail_api_configured() -> bool:
     return get_gmail_credentials() is not None
@@ -38,6 +52,7 @@ def send_email_gmail_api(
     body: str,
     attachments=None
 ) -> None:
+    global _cached_service
     print("[Gmail API] Connecting to Google Gmail API...")
     print(f"[Gmail API] Preparing to send email via Gmail API to: {to_addr}")
 
@@ -50,7 +65,9 @@ def send_email_gmail_api(
         print("[Gmail API] Refreshing Google OAuth access token...")
         creds.refresh(Request())
 
-    service = build("gmail", "v1", credentials=creds)
+    if _cached_service is None:
+        _cached_service = build("gmail", "v1", credentials=creds)
+    service = _cached_service
 
     from_addr = os.getenv("GOOGLE_FROM_EMAIL", "").strip() or os.getenv("SMTP_FROM", "").strip()
     if not from_addr:
