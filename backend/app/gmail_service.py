@@ -43,8 +43,33 @@ def get_gmail_credentials() -> Credentials | None:
     _cached_service = None
     return _cached_creds
 
+_gmail_api_valid: bool | None = None
+_last_validated_creds: Credentials | None = None
+
 def is_gmail_api_configured() -> bool:
-    return get_gmail_credentials() is not None
+    global _gmail_api_valid, _last_validated_creds
+    creds = get_gmail_credentials()
+    if creds is None:
+        return False
+
+    if creds is not _last_validated_creds:
+        _gmail_api_valid = None
+        _last_validated_creds = creds
+
+    if _gmail_api_valid is not None:
+        return _gmail_api_valid
+
+    try:
+        from google.auth.transport.requests import Request
+        print("[Gmail API] Validating credentials by refreshing OAuth token...")
+        creds.refresh(Request())
+        _gmail_api_valid = True
+        print("[Gmail API] Credentials validated successfully!")
+        return True
+    except Exception as e:
+        print(f"[Gmail API] Google API Credentials validation failed (will fall back to other configured options): {e}")
+        _gmail_api_valid = False
+        return False
 
 def send_email_gmail_api(
     to_addr: str,

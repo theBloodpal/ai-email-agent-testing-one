@@ -1,4 +1,16 @@
 from __future__ import annotations
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 from datetime import datetime, timezone
 import copy
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -149,12 +161,20 @@ def send_emails_worker(
             )
 
             # SEND EMAIL
+            from app.email_service import SMTPSettings
+            smtp_settings = SMTPSettings(
+                host="smtp.gmail.com",
+                port=587,
+                user=sender_email,
+                password=sender_password,
+                from_addr=sender_email,
+                use_tls=True,
+            )
             send_email_smtp(
-                smtp_email=sender_email,
-                smtp_password=sender_password,
-                to_email=to_email,
+                to_addr=to_email,
                 subject=subject,
                 body=personalized_message,
+                settings=smtp_settings,
             )
 
             # success update
@@ -724,10 +744,10 @@ def send_single_email_worker(
 
         # Send email
         send_email_smtp(
-            smtp_settings=smtp_settings,
-            to_email=to_email,
+            to_addr=to_email,
             subject=subject,
             body=personalized_message,
+            settings=smtp_settings,
         )
 
         # Thread-safe success update

@@ -1,4 +1,16 @@
 from __future__ import annotations
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 from datetime import datetime, timezone
 import copy
 
@@ -146,12 +158,20 @@ def send_emails_worker(
             )
 
             # SEND EMAIL
+            from app.email_service import SMTPSettings
+            smtp_settings = SMTPSettings(
+                host="smtp.gmail.com",
+                port=587,
+                user=sender_email,
+                password=sender_password,
+                from_addr=sender_email,
+                use_tls=True,
+            )
             send_email_smtp(
-                smtp_email=sender_email,
-                smtp_password=sender_password,
-                to_email=to_email,
+                to_addr=to_email,
                 subject=subject,
                 body=personalized_message,
+                settings=smtp_settings,
             )
 
             # success update
@@ -726,10 +746,10 @@ def send_single_email_worker(
 
         # Send email
         send_email_smtp(
-            smtp_settings=smtp_settings,
-            to_email=to_email,
+            to_addr=to_email,
             subject=subject,
             body=personalized_message,
+            settings=smtp_settings,
         )
 
         # Thread-safe success update
@@ -1132,7 +1152,7 @@ def register(data: dict):
     phone = data.get("phone", "").strip()
     password = data.get("password", "")
     role = data.get("role", "individual")
-    app_password = data.get("app_password", "").replace(" ", "")
+    app_password = data.get("app_password", "").replace(" ", "").lower()
 
     if len(name) < 3:
         raise HTTPException(400, "Name must be at least 3 characters")
@@ -1140,7 +1160,9 @@ def register(data: dict):
     if not re.match(r"^[\w\.-]+@[\w\.-]+\.\w+$", email):
         raise HTTPException(400, "Invalid email format")
 
-    if not phone.isdigit() or len(phone) != 10:
+    # Clean phone: only digits allowed
+    phone = re.sub(r"\D", "", phone)
+    if len(phone) != 10:
         raise HTTPException(400, "Phone must be 10 digits")
 
     if role == "individual":
@@ -1149,8 +1171,11 @@ def register(data: dict):
                 400,
                 "App password must be exactly 16 lowercase letters"
             )
-        # Keep login flow same: individual can log in using app password.
-        password = app_password
+        # If the user typed a password in the password field, use it. Otherwise fall back to app_password.
+        if not password:
+            password = app_password
+        elif len(password) < 6:
+            raise HTTPException(400, "Password must be at least 6 characters")
     else:
         if len(password) < 6:
             raise HTTPException(400, "Password must be at least 6 characters")
@@ -1182,7 +1207,18 @@ def login(data: dict):
     if not user:
         raise HTTPException(400, "User not found")
 
-    if hash_password(password) != user["password"]:
+    # Support login via:
+    # 1. Custom registered password (hashed in DB)
+    # 2. App password (legacy registration or direct login)
+    is_valid = False
+    if hash_password(password) == user["password"]:
+        is_valid = True
+    elif user["role"] == "individual" and user.get("app_password"):
+        normalized_pwd = password.replace(" ", "").lower()
+        if normalized_pwd == user["app_password"].replace(" ", "").lower():
+            is_valid = True
+
+    if not is_valid:
         raise HTTPException(400, "Invalid password")
 
     state["current_user"] = user
