@@ -35,14 +35,8 @@ class ManualEmailSender:
                     body=email["body"],
                     attachments=email.get("attachments", []),
                 )
-            elif self.settings:
-                send_email_smtp(
-                    to_addr=email["to"],
-                    subject=email["subject"],
-                    body=email["body"],
-                    settings=self.settings,
-                    attachments=email.get("attachments", []),
-                )
+            else:
+                raise ValueError("Google Gmail API is not configured or credentials validation failed.")
 
             result = {
                 "to": email["to"],

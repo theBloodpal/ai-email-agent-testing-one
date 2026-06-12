@@ -29,7 +29,6 @@ import os
 from imap_tools import MailBox
 
 from app.ai_client import API_KEY, answer_email_question, enhance_email
-from app.email_service import load_smtp_settings, send_email_smtp, send_email_sendgrid_api
 from app.excel_utils import (
     detect_email_column,
     detect_first_name_column,
@@ -1632,27 +1631,10 @@ def _send_worker_job(job_id: str, subject: str, message_template: str, snapshot:
         from app.gmail_service import is_gmail_api_configured, send_email_gmail_api
         use_gmail_api = is_gmail_api_configured()
 
-        if use_gmail_api or smtp:
+        if use_gmail_api:
             try:
-                if use_gmail_api:
-                    send_email_gmail_api(to_addr, subject, body, attachments)
-                    entry = {"email": to_addr, "status": "delivered", "detail": "Sent via Google Gmail API"}
-                else:
-                    sg_api_key = os.getenv("SENDGRID_API_KEY", "").strip()
-                    if sg_api_key:
-                        sg_from_addr = os.getenv("SENDGRID_FROM", "").strip() or smtp.from_addr
-                        send_email_sendgrid_api(
-                            api_key=sg_api_key,
-                            to_addr=to_addr,
-                            subject=subject,
-                            body=body,
-                            from_addr=sg_from_addr,
-                            attachments=attachments
-                        )
-                        entry = {"email": to_addr, "status": "delivered", "detail": "Sent via SendGrid API"}
-                    else:
-                        send_email_smtp(to_addr, subject, body, smtp, attachments)
-                        entry = {"email": to_addr, "status": "delivered", "detail": "Accepted by SMTP server"}
+                send_email_gmail_api(to_addr, subject, body, attachments)
+                entry = {"email": to_addr, "status": "delivered", "detail": "Sent via Google Gmail API"}
                 
                 with _send_jobs_lock:
                     p = state["send_jobs"][job_id]["progress"]
@@ -1672,13 +1654,13 @@ def _send_worker_job(job_id: str, subject: str, message_template: str, snapshot:
         else:
             entry = {
                 "email": to_addr,
-                "status": "delivered",
-                "detail": "Simulated (configure Google API or SMTP for real send)",
+                "status": "failed",
+                "detail": "Failed: Google Gmail API is not configured or credentials validation failed.",
             }
             with _send_jobs_lock:
                 p = state["send_jobs"][job_id]["progress"]
                 p["current_email"] = to_addr
-                p["delivered"] += 1
+                p["failed"] += 1
                 p["processed"] += 1
                 p["results"].append(entry)
 
@@ -1740,7 +1722,7 @@ def _send_worker_job(job_id: str, subject: str, message_template: str, snapshot:
         "at": datetime.now(timezone.utc).isoformat(),
         "from_email": from_addr,
         "subject": subject,
-        "mode": "smtp" if smtp else "demo",
+        "mode": "gmail" if is_gmail_api_configured() else "demo",
         "total": len(final_rows),
         "delivered": delivered_count,
         "failed": failed_count,
@@ -1841,21 +1823,9 @@ def reset_stop():
 @app.get("/api/send-status")
 async def send_status() -> dict[str, object]:
     bundle = _refresh_legacy_send_aggregate()
-    smtp = load_smtp_settings()
-    active = state.get("active_sender")
 
     from app.gmail_service import is_gmail_api_configured
     gmail_ready = is_gmail_api_configured()
-
-    smtp_ready = (
-        gmail_ready
-        or smtp is not None
-        or (
-            isinstance(active, dict)
-            and bool(active.get("email"))
-            and bool(active.get("password"))
-        )
-    )
 
     jobs = bundle.get("jobs") or []
 
@@ -1867,17 +1837,13 @@ async def send_status() -> dict[str, object]:
         "jobs": jobs,
         "active_job_count": bundle.get("active_job_count"),
         "last_batch": state.get("last_batch"),
-        "smtp_configured": bool(smtp_ready),
+        "smtp_configured": bool(gmail_ready),
         "excel_uploaded": len(state.get("rows") or []) > 0,
         "excel_rows_count": len(state.get("rows") or []),
         "delivery_note": (
             "Gmail API configured (HTTPS)."
             if gmail_ready
-            else (
-                "SMTP via active sender credentials or SMTP_* env. Multiple concurrent sends are supported."
-                if smtp_ready
-                else "Demo mode: configure sender app password / SMTP_* for real sending."
-            )
+            else "Google Gmail API is not configured or credentials validation failed. Please check your GOOGLE_* env settings."
         ),
     }
 
