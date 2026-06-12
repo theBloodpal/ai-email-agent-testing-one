@@ -1234,6 +1234,8 @@ def login(data: dict):
     else:
         state["active_sender"] = None
 
+    _save_state()
+
     return {
         "user_id": user["id"],
         "name": user["name"],
@@ -1275,6 +1277,7 @@ def select_sender(data: dict):
     if not sender:
         raise HTTPException(404, "Sender not found")
     state["active_sender"] = sender
+    _save_state()
     return {"message": "Sender selected", "active_email": sender["email"]}
 
 
@@ -1302,6 +1305,7 @@ state: dict[str, object] = {
     "stop_requested": False,
     "attachments": [],
     "active_sender": None,
+    "current_user": None,
     "insights_cache": {},
     "send_jobs": {},
     "send_stats": {
@@ -1323,6 +1327,44 @@ state: dict[str, object] = {
         "results": [],
     },
 }
+
+
+def _save_state():
+    try:
+        data = {
+            "active_sender": state.get("active_sender"),
+            "current_user": state.get("current_user"),
+            "rows": state.get("rows"),
+            "first_name_column": state.get("first_name_column"),
+            "email_column": state.get("email_column"),
+            "last_batch": state.get("last_batch"),
+        }
+        with open("state_persistence.json", "w", encoding="utf-8") as f:
+            import json
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("[PERSISTENCE] Error saving state:", e)
+
+
+def _load_state():
+    try:
+        import json
+        if os.path.exists("state_persistence.json"):
+            with open("state_persistence.json", "r", encoding="utf-8") as f:
+                data = json.load(f)
+                state["active_sender"] = data.get("active_sender")
+                state["current_user"] = data.get("current_user")
+                state["rows"] = data.get("rows") or []
+                state["first_name_column"] = data.get("first_name_column")
+                state["email_column"] = data.get("email_column")
+                state["last_batch"] = data.get("last_batch")
+                print("[PERSISTENCE] State successfully restored from state_persistence.json")
+    except Exception as e:
+        print("[PERSISTENCE] Error loading state:", e)
+
+
+_load_state()
+
 
 
 # ════════════════════════════════════════════
@@ -1351,6 +1393,7 @@ async def upload_excel(file: UploadFile = File(...)) -> dict[str, object]:
     state["rows"] = rows
     state["first_name_column"] = first_name_column
     state["email_column"] = email_column
+    _save_state()
     return {
         "success": True,
         "rows_count": len(rows),
@@ -1714,6 +1757,7 @@ def _send_worker_job(job_id: str, subject: str, message_template: str, snapshot:
         j["last_batch"] = last_batch
         state["last_batch"] = last_batch
 
+    _save_state()
     _refresh_legacy_send_aggregate()
     print(f"[Send worker] Finished ({job_id}).")
 
@@ -1988,6 +2032,7 @@ def manual_send(payload: SendRequest):
         "bounced_emails": [],
         "results": results,
     }
+    _save_state()
     return result
 
 
