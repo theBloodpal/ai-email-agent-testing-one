@@ -104,91 +104,6 @@ parallel_send_state = {
     "failed": 0,
     "total": 0,
 }
-def send_emails_worker(
-    sender_email: str,
-    sender_password: str,
-    subject: str,
-    message_template: str,
-    contacts: list,
-    job_id: str,
-):
-    """
-    Background thread worker.
-    Each sender gets its own thread/job.
-    """
-
-    global parallel_send_state
-
-    total = len(contacts)
-
-    # create job entry
-    with send_lock:
-        parallel_send_state[job_id] = {
-            "job_id": job_id,
-            "from_email": sender_email,
-            "total": total,
-            "processed": 0,
-            "delivered": 0,
-            "failed": 0,
-            "current_email": "",
-            "in_progress": True,
-            "started_at": time.time(),
-        }
-
-    for idx, row in enumerate(contacts):
-
-        try:
-            # detect receiver email column
-            email_col = detect_email_column(row.keys())
-
-            if not email_col:
-                continue
-
-            to_email = str(row[email_col]).strip()
-
-            # update live progress
-            with send_lock:
-                parallel_send_state[job_id]["current_email"] = to_email
-
-            # personalize email
-            personalized_message = personalize_message(
-                message_template,
-                row,
-            )
-
-            # SEND EMAIL
-            from app.email_service import SMTPSettings
-            smtp_settings = SMTPSettings(
-                host="smtp.gmail.com",
-                port=587,
-                user=sender_email,
-                password=sender_password,
-                from_addr=sender_email,
-                use_tls=True,
-            )
-            send_email_smtp(
-                to_addr=to_email,
-                subject=subject,
-                body=personalized_message,
-                settings=smtp_settings,
-            )
-
-            # success update
-            with send_lock:
-                parallel_send_state[job_id]["processed"] += 1
-                parallel_send_state[job_id]["delivered"] += 1
-
-        except Exception as e:
-
-            print(f"[THREAD ERROR] {e}")
-
-            with send_lock:
-                parallel_send_state[job_id]["processed"] += 1
-                parallel_send_state[job_id]["failed"] += 1
-
-    # mark completed
-    with send_lock:
-        parallel_send_state[job_id]["in_progress"] = False
 def _db():
     # Process-wide SQLite connection for low-latency lookups.
     # Note: this is safe for dev and typical single-process uvicorn usage.
@@ -711,68 +626,6 @@ def _imap_fetch_full_email(uid: str) -> dict[str, Any]:
         except Exception:
             pass
 
-def send_single_email_worker(
-    row,
-    subject,
-    message_template,
-    smtp_settings,
-):
-    """
-    Sends ONE email safely inside a thread.
-    """
-
-    global parallel_send_state
-
-    try:
-        # Extract recipient email
-        to_email = row.get("email", "").strip()
-
-        if not to_email:
-            with send_lock:
-                parallel_send_state["failed"] += 1
-                parallel_send_state["processed"] += 1
-            return {
-                "success": False,
-                "email": "",
-                "error": "Missing email"
-            }
-
-        # Personalize message
-        personalized_message = personalize_message(
-            message_template,
-            row
-        )
-
-        # Send email
-        send_email_smtp(
-            to_addr=to_email,
-            subject=subject,
-            body=personalized_message,
-            settings=smtp_settings,
-        )
-
-        # Thread-safe success update
-        with send_lock:
-            parallel_send_state["delivered"] += 1
-            parallel_send_state["processed"] += 1
-
-        return {
-            "success": True,
-            "email": to_email,
-        }
-
-    except Exception as e:
-
-        # Thread-safe fail update
-        with send_lock:
-            parallel_send_state["failed"] += 1
-            parallel_send_state["processed"] += 1
-
-        return {
-            "success": False,
-            "email": row.get("email", ""),
-            "error": str(e),
-        }
 @app.post("/api/email-insights/query")
 def email_insights_query(payload: PromptQueryRequest):
     command_response = _handle_prompt_command(payload.question)
@@ -1558,22 +1411,10 @@ def _send_worker_job(job_id: str, subject: str, message_template: str, snapshot:
     email_column = snapshot.get("email_column")
     attachments = snapshot.get("attachments") or []
     sender_snap = snapshot.get("sender_snapshot")
-
     if sender_snap:
-        from app.email_service import SMTPSettings
-
-        smtp = SMTPSettings(
-            host="smtp.gmail.com",
-            port=587,
-            user=sender_snap["email"],
-            password=sender_snap["password"],
-            from_addr=sender_snap["email"],
-            use_tls=True,
-        )
         imap_user = sender_snap["email"]
         imap_pass = sender_snap["password"]
     else:
-        smtp = load_smtp_settings()
         imap_user = os.getenv("SMTP_USER", "").strip() or None
         imap_pass = os.getenv("SMTP_PASSWORD", "").strip() or None
 
@@ -1915,21 +1756,6 @@ def init_manual_sender(subject: str, message_template: str):
     email_column = state.get("email_column")
     attachments = state.get("attachments", [])
 
-    # Use active_sender if set, else fallback to .env SMTP
-    active = state.get("active_sender")
-    if active:
-        from app.email_service import SMTPSettings
-        smtp = SMTPSettings(
-            host="smtp.gmail.com",
-            port=587,
-            user=active["email"],
-            password=active["password"],
-            from_addr=active["email"],
-            use_tls=True,
-        )
-    else:
-        smtp = load_smtp_settings()
-
     emails = []
     for row in rows:
         if not email_column:
@@ -1939,7 +1765,7 @@ def init_manual_sender(subject: str, message_template: str):
             continue
         body = personalize_message(message_template, row, first_name_column)
         emails.append({"to": to_addr, "subject": subject, "body": body, "attachments": attachments})
-    sender = ManualEmailSender(emails, smtp, state)
+    sender = ManualEmailSender(emails, state)
     sender.current_index = 0
     _extend_sender(sender)
     state["manual_sender"] = sender

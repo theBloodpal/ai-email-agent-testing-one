@@ -1,11 +1,9 @@
 from typing import Any, Dict, List, Optional
-from app.email_service import SMTPSettings, send_email_smtp
 
 
 class ManualEmailSender:
-    def __init__(self, emails: List[Dict], settings: SMTPSettings | None, state):
+    def __init__(self, emails: List[Dict], state):
         self.emails = emails
-        self.settings = settings
         self.state = state
         self.index = 0
         self.current_index = 0
